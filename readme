@@ -1,4 +1,7 @@
-Keybourd shortcuts:
-ctrl + b: build executable
-ctrl + r: run executable
-ctrl + q: build and run
+This Project is a simple physics engine written in C using the raylib framework.
+
+I am using Zanzlanz's video "Coding a Physics Engine from Scratch!" on YouTube as a sort of guide and am adapting it in C.
+
+AI disclosure:
+Most of this code base is written by hand, however for some issues I have used claude to help figure out bugs, explaining code, and figuring out technical issues.
+But I still try to understand my codebase by writting what claude tell me itself and I try to avoid copy and pasteing.
