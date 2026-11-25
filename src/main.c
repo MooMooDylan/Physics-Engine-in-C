@@ -6,10 +6,17 @@
 #define WINDOWHEIGHT 488
 #define START_OUTER_BOX_BUFFER 10
 
+#define MAX_BALLS 20
+#define MAX_LINES 10
+
 #define WORLD_FRICTION 0.2
-#define WORLD_GRAVITY 2
+#define WORLD_GRAVITY 90
 
 #define DEFAULT_RESTESTUTION 0.8
+
+void 你好() {
+    printf("你好\n");
+}
 
 typedef struct Wall2D {
     Vector2 start;
@@ -22,6 +29,8 @@ typedef struct KineticCircle2D {
     float radius;
 
     float restitution;
+
+    bool selected;
 } KineticCircle2D;
 
 Vector2 GetLineMidpoint(Wall2D line) {
@@ -40,8 +49,40 @@ void UpdatePosition(KineticCircle2D *ball, float delta) {
     ball->pos.y = ball->pos.y + ball->vel.y * delta;
 }
 
-void ApplyGravity(KineticCircle2D *ball, float gravity) {
-    ball->vel.y = ball->vel.y + gravity;
+void ApplyGravity(KineticCircle2D *ball, float gravity, float delta) {
+    ball->vel.y = ball->vel.y + gravity * delta;
+}
+
+void BounceCircle(KineticCircle2D *ball, Vector2 n) {
+    float d = Vector2DotProduct(ball->vel, n);
+
+    // Only respond if moving into the wall
+    if (d >= 0) return;
+
+    Vector2 vn = Vector2Scale(n, d);              // normal component
+    Vector2 vt = Vector2Subtract(ball->vel, vn);  // tangent component
+
+    vt = Vector2Scale(vt, 1.0f - WORLD_FRICTION);       // friction slows sliding
+    vn = Vector2Scale(vn, -ball->restitution);          // flip and scale bounce
+
+    ball->vel = Vector2Add(vt, vn);
+}
+
+void PointBounce(KineticCircle2D *ball, Vector2 point) {
+    Vector2 diff = Vector2Subtract(ball->pos, point);
+    float dist = Vector2Length(diff);
+
+    if (dist >= ball->radius) { return; }
+
+    Vector2 n = Vector2Scale(Vector2Subtract(ball->pos, point), 1.0f / dist);
+
+    float pentration = ball->radius - Vector2Distance(ball->pos, point);
+
+    ball->pos = Vector2Add(ball->pos, Vector2Scale(n, pentration));
+
+    BounceCircle(ball, n);
+
+    return;
 }
 
 void WallCollision(Wall2D line, KineticCircle2D *ball, float friction) {
@@ -49,6 +90,10 @@ void WallCollision(Wall2D line, KineticCircle2D *ball, float friction) {
 
     float dist;
     Vector2 toBall;
+
+    Vector2 v1 = {ball->pos.x-line.start.x, ball->pos.y-line.start.y};
+    Vector2 v2 = {-lineNormal.y, lineNormal.x};
+    float distAlongLine = Vector2DotProduct(v1, v2);
 
     toBall = Vector2Subtract(ball->pos, line.start);
     if (Vector2DotProduct(lineNormal, toBall) < 0) {
@@ -59,24 +104,18 @@ void WallCollision(Wall2D line, KineticCircle2D *ball, float friction) {
 
     if (dist < ball->radius) {
 
-        float d = Vector2DotProduct(ball->vel, lineNormal);
+        if (distAlongLine < 0) { //Relative Left of Line
+            PointBounce(ball, line.start);
+            return;
+        }
+        if (distAlongLine > Vector2Distance(line.start, line.end)) { //Relative Left of Line
+            PointBounce(ball, line.end);
+            return;
+        }
 
-        if (d >= 0) return;
-
-        Vector2 vn = Vector2Scale(lineNormal, d);
-        Vector2 vt = Vector2Subtract(ball->vel, vn);
-
-        vt = Vector2Scale(vt, 1.0f - friction);
-        vn = Vector2Scale(vn, -ball->restitution);
-
-        ball->vel = Vector2Add(vt, vn);
-
-        float dist = Vector2DotProduct(toBall, lineNormal);
-
-        ball->pos.x += lineNormal.x * -(dist - ball->radius);
-        ball->pos.y += lineNormal.y * -(dist - ball->radius);
-    
-    } else { return; }
+        BounceCircle(ball, lineNormal); //On line middle
+        return;
+    }
 }
 
 void OuterBoxCollision(Rectangle outerBox, KineticCircle2D *ball, float friction) {
@@ -115,23 +154,87 @@ void OuterBoxCollision(Rectangle outerBox, KineticCircle2D *ball, float friction
 }
 
 int main(void) {
+    你好();
     Rectangle outerBox;
     outerBox.x = START_OUTER_BOX_BUFFER;
     outerBox.y = START_OUTER_BOX_BUFFER;
     outerBox.height = WINDOWHEIGHT - START_OUTER_BOX_BUFFER * 2;
     outerBox.width = WINDOWWIDTH - START_OUTER_BOX_BUFFER * 2;
-
-    Wall2D line = { {300, 400}, {250, 175} };
+    printf("Outer box init\n");
     
-    KineticCircle2D ball = { {WINDOWWIDTH / 2, WINDOWHEIGHT / 2}, {-80, 20}, 10, DEFAULT_RESTESTUTION};
+    Wall2D lines[MAX_LINES];
+    int linesSpawned = 0;
+    bool spawningLine = false;
+    Vector2 newLineStart;
+
+    Wall2D defaultLine = { {300, 400}, {250, 175} };
+    printf("Wall init\n");
+    
+    KineticCircle2D defaultBall = { {WINDOWWIDTH / 2, WINDOWHEIGHT / 2}, {0, 0}, 10, DEFAULT_RESTESTUTION};
+
+    KineticCircle2D balls[MAX_BALLS];
+    int ballsSpawned = 0;
+    printf("Ball init\n");
 
     float deltatime;
 
     InitWindow(WINDOWWIDTH, WINDOWHEIGHT, "Physics Engine");
 
+    Vector2 mousePosition;
+    printf("Main loop begin\n");
+
     while (!WindowShouldClose()) {
         deltatime = GetFrameTime();
+        mousePosition = GetMousePosition();
 
+        //Input
+            // Move balls
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                for (int i = 0; i <= ballsSpawned; i++) {
+                    if (!balls[i].selected && Vector2Distance(balls[i].pos, mousePosition) <= balls[i].radius){
+                    balls[i].selected = true;
+                }
+                }
+            } else if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+                for (int i = 0; i <= ballsSpawned; i++) {
+
+                    if (balls[i].selected) {
+                        balls[i].selected = false;
+                        balls[i].vel = Vector2Add(Vector2Subtract(mousePosition, balls[i].pos), balls[i].vel);
+                    }
+                }
+                
+            }
+
+            //Spawn balls
+            if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+                if (ballsSpawned < MAX_BALLS) {
+                    balls[ballsSpawned + 1] = defaultBall;
+                    balls[ballsSpawned + 1].pos = mousePosition;
+                    ballsSpawned++;
+                    printf("Spawn ball %d\n", ballsSpawned);
+                }
+            }
+
+            //Spawn Lines
+            if (IsKeyPressed(KEY_SPACE)) {
+                if (!spawningLine && linesSpawned <= MAX_LINES) {
+                    printf("spawning line\n");
+                    newLineStart = mousePosition;
+                    spawningLine = true;
+                }
+            }
+            if (IsKeyReleased(KEY_SPACE)) {
+                if (spawningLine) {
+                    lines[linesSpawned + 1] = defaultLine;
+                    lines[linesSpawned + 1].start = newLineStart;
+                    lines[linesSpawned + 1].end = mousePosition;
+                    linesSpawned++;
+                    spawningLine = false;
+                }
+            }
+
+        //Rendering
         BeginDrawing();
 
             ClearBackground(BLACK);
@@ -142,23 +245,44 @@ int main(void) {
             DrawCircle(outerBox.x + outerBox.width, outerBox.y, 5, BLUE);
             DrawCircle(outerBox.x + outerBox.width, outerBox.y + outerBox.height, 5, BLUE);
             DrawCircle(outerBox.x, outerBox.y + outerBox.height, 5, BLUE);
+            
+            //Draw lines
+            for (int i = 0; i <= linesSpawned; i++) {
+                DrawLineV(lines[i].start, lines[i].end, WHITE);
+            }
+            if (spawningLine) {
+                DrawLineV(newLineStart, mousePosition, RED);
+            }
 
-            DrawLine(line.start.x, line.start.y, line.end.x, line.end.y, WHITE);
-
-            DrawCircle(ball.pos.x, ball.pos.y, ball.radius, WHITE);
+            //Draw balls
+            for (int i = 0; i <= ballsSpawned; i++){
+                if (!balls[i].selected) {
+                    DrawCircle(balls[i].pos.x, balls[i].pos.y, balls[i].radius, WHITE);
+                } else {
+                    DrawCircle(balls[i].pos.x, balls[i].pos.y, balls[i].radius, RED);
+                    DrawLineV(GetMousePosition(), balls[i].pos, RED);
+                }
+            }
 
             DrawFPS(0,0);
 
         EndDrawing();
 
-        UpdatePosition(&ball, deltatime);
+        //Apply physics
+            for (int i = 0; i <= ballsSpawned; i++) {
+            
+            UpdatePosition(&balls[i], deltatime);
 
-        OuterBoxCollision(outerBox, &ball, WORLD_FRICTION);
+            OuterBoxCollision(outerBox, &balls[i], WORLD_FRICTION);
 
-        //Line Collision
-        WallCollision(line, &ball, WORLD_FRICTION);
+            //Line Collision
+            for (int j = 0; j <= linesSpawned; j++) {
+                WallCollision(lines[j], &balls[i], WORLD_FRICTION);
+            }
         
-        ApplyGravity(&ball, WORLD_GRAVITY);
+            ApplyGravity(&balls[i], WORLD_GRAVITY, deltatime);
+
+            }
     }
 
     CloseWindow();
